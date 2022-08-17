@@ -19,17 +19,16 @@ gbk_map = {
     "TERMINATOR": identifiers.roles.terminator,
     "GENE": identifiers.roles.gene
 }
-
+existing_entities = []
 
 def convert(gbk, prefix, out):
-
     graph = Graph()
     for record in SeqIO.parse(gbk, "genbank"):
         name = record.name
         seq = record.seq
         if record.name is None and record.name == "":
             name = record.id
-        subject = prefix + _get_name(name) + "/1"
+        subject = _build_uri(prefix,name)
         sources = [f for f in record.features if f.type == "source"]
         props = ""
         components = []
@@ -53,22 +52,22 @@ def convert(gbk, prefix, out):
             complement = identifiers.roles.inline if location.strand == 1 else identifiers.roles.reverse
             quals = f.qualifiers
             if "label" in quals:
-                cd_subject = f'{prefix}{_get_name(quals["label"][0])}/1'
-                c_subject = f'{prefix}{_get_name(quals["label"][0])}_c/1'
-                s_subject = f'{prefix}{_get_name(quals["label"][0])}_annotation/1'
+                cd_subject = _build_uri(prefix,quals["label"][0],default=f.type)
+                c_subject = _build_uri(prefix,quals["label"][0],suffix="_c",default=f.type)
+                s_subject = _build_uri(prefix,quals["label"][0],suffix="_annotation",default=f.type)
             elif "note" in quals:
-                cd_subject = f'{prefix}{_get_name(quals["note"][0])}/1'
-                c_subject = f'{prefix}{_get_name(quals["note"][0])}_c/1'
-                s_subject = f'{prefix}{_get_name(quals["note"][0])}_annotation/1'
+                cd_subject = _build_uri(prefix,quals["note"][0],default=f.type)
+                c_subject = _build_uri(prefix,quals["note"][0],suffix="_c",default=f.type)
+                s_subject = _build_uri(prefix,quals["note"][0],suffix="_annotation",default=f.type)
             elif "gene" in quals:
-                cd_subject = f'{prefix}{_get_name(quals["gene"][0])}/1'
-                c_subject = f'{prefix}{_get_name(quals["gene"][0])}_c/1'
-                s_subject = f'{prefix}{_get_name(quals["gene"][0])}_annotation/1'
+                cd_subject = _build_uri(prefix,quals["gene"][0],default=f.type)
+                c_subject = _build_uri(prefix,quals["gene"][0],suffix="_c",default=f.type)
+                s_subject = _build_uri(prefix,quals["gene"][0],suffix="_annotation",default=f.type)
             elif "primer" in quals:
                 primer = quals["primer"][0].split()[0]
-                cd_subject = f'{prefix}{_get_name(primer)}/1'
-                c_subject = f'{prefix}{_get_name(primer)}_c/1'
-                s_subject = f'{prefix}{_get_name(primer)}_annotation/1'
+                cd_subject = _build_uri(prefix,primer,default=f.type)
+                c_subject = _build_uri(prefix,primer,suffix="_c",default=f.type)
+                s_subject = _build_uri(prefix,primer,suffix="_annotation",default=f.type)
             else:
                 raise ValueError("Cant find")
 
@@ -93,6 +92,7 @@ def convert(gbk, prefix, out):
     out_fn = os.path.join(out, gbk.split(os.path.sep)[-1].split(".")[0]+".xml")
     with open(out_fn, 'w') as o:
         o.write(sbol)
+    existing_entities.clear()
     return out_fn
 
 
@@ -110,8 +110,21 @@ def _get_role(feature):
             return gbk_map[d]
 
 
+def _build_uri(prefix,name,suffix=None,default=None):
+    name = _get_name(name)
+    if name.isdigit() and default is not None:
+        name = default
+    uri = f'{prefix}{name}{suffix if suffix is not None else ""}/1'
+    if uri not in existing_entities:
+        return URIRef(uri)
+    orig_uri = uri
+    count = 0
+    while uri not in existing_entities:
+        uri = f'{orig_uri[0:-2]}{str(count)}/1'
+        count +=1
+    return URIRef(uri) 
+
 def _add_sequence(graph, cd, elements):
-    cd = URIRef(cd)
     subject = URIRef(cd[0:-2] + "_sequence/1")
     elements = Literal(elements)
     for triple in generator.sequence(subject, elements, identifiers.objects.naseq):
@@ -144,7 +157,7 @@ def _add_sa(graph, subject, start, end, strand, c_subject):
 
 
 def _get_name(name):
-    blacklist_chars = ["(",")"]
+    blacklist_chars = ["(",")",".","+"]
     for c in blacklist_chars:
         name = name.replace(c,"")
     return name.replace(" ", "_").replace("-", "_")
