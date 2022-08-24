@@ -172,6 +172,10 @@ def _serialise(graph):
 if __name__ == "__main__":
     prefix = "http://sevahub.es/public/Canonical/"
     results = {}
+    try:
+        os.mkdir("sbol")
+    except FileExistsError:
+        pass
     for file in os.listdir("gbk"):
         i = os.path.join("gbk", file)
         rv = convert(i, prefix, "sbol")
