@@ -24,11 +24,10 @@ existing_entities = []
 def convert(gbk, prefix, out):
     graph = Graph()
     for record in SeqIO.parse(gbk, "genbank"):
-        name = record.name
         seq = record.seq
-        if record.name is None and record.name == "":
-            name = record.id
+        name = gbk.split(".")[0].split("/")[1]
         subject = _build_uri(prefix,name)
+        print(name)
         sources = [f for f in record.features if f.type == "source"]
         props = ""
         components = []
@@ -52,24 +51,19 @@ def convert(gbk, prefix, out):
             complement = identifiers.roles.inline if location.strand == 1 else identifiers.roles.reverse
             quals = f.qualifiers
             if "label" in quals:
-                cd_subject = _build_uri(prefix,quals["label"][0],default=f.type)
-                c_subject = _build_uri(prefix,quals["label"][0],suffix="_c",default=f.type)
-                s_subject = _build_uri(prefix,quals["label"][0],suffix="_annotation",default=f.type)
+                e_name =  quals["label"][0]
             elif "note" in quals:
-                cd_subject = _build_uri(prefix,quals["note"][0],default=f.type)
-                c_subject = _build_uri(prefix,quals["note"][0],suffix="_c",default=f.type)
-                s_subject = _build_uri(prefix,quals["note"][0],suffix="_annotation",default=f.type)
+                e_name =  quals["note"][0]
             elif "gene" in quals:
-                cd_subject = _build_uri(prefix,quals["gene"][0],default=f.type)
-                c_subject = _build_uri(prefix,quals["gene"][0],suffix="_c",default=f.type)
-                s_subject = _build_uri(prefix,quals["gene"][0],suffix="_annotation",default=f.type)
+                e_name =  quals["gene"][0]
             elif "primer" in quals:
-                primer = quals["primer"][0].split()[0]
-                cd_subject = _build_uri(prefix,primer,default=f.type)
-                c_subject = _build_uri(prefix,primer,suffix="_c",default=f.type)
-                s_subject = _build_uri(prefix,primer,suffix="_annotation",default=f.type)
+                e_name = quals["primer"][0].split()[0]
             else:
-                raise ValueError("Cant find")
+                e_name = f.type
+
+            cd_subject = _build_uri(prefix,e_name,default=f.type)
+            c_subject = _build_uri(prefix,e_name,suffix="_c",default=f.type)
+            s_subject = _build_uri(prefix,e_name,suffix="_annotation",default=f.type)
 
             c_subject = generator.build_children_uri(subject, c_subject)
             s_subject = generator.build_children_uri(subject, s_subject)
@@ -83,8 +77,10 @@ def convert(gbk, prefix, out):
 
             components.append(c_subject)
             sas.append(s_subject)
-
-        _add_sequence(graph, subject, seq)
+        
+        print(prefix,name)
+        sequence_uri = _build_uri(prefix,name,suffix="_sequence")
+        _add_sequence(graph, sequence_uri,subject, seq)
         _add_cd(graph, subject, dna_o,
                 components=components, sas=sas, props=props)
 
@@ -92,7 +88,6 @@ def convert(gbk, prefix, out):
     out_fn = os.path.join(out, gbk.split(os.path.sep)[-1].split(".")[0]+".xml")
     with open(out_fn, 'w') as o:
         o.write(sbol)
-    existing_entities.clear()
     return out_fn
 
 
@@ -116,16 +111,17 @@ def _build_uri(prefix,name,suffix=None,default=None):
         name = default
     uri = f'{prefix}{name}{suffix if suffix is not None else ""}/1'
     if uri not in existing_entities:
+        existing_entities.append(uri)
         return URIRef(uri)
     orig_uri = uri
     count = 0
-    while uri not in existing_entities:
+    while uri in existing_entities:
         uri = f'{orig_uri[0:-2]}{str(count)}/1'
         count +=1
+    existing_entities.append(uri)
     return URIRef(uri) 
 
-def _add_sequence(graph, cd, elements):
-    subject = URIRef(cd[0:-2] + "_sequence/1")
+def _add_sequence(graph, subject,cd, elements):
     elements = Literal(elements)
     for triple in generator.sequence(subject, elements, identifiers.objects.naseq):
         graph.add(triple)
@@ -177,6 +173,9 @@ if __name__ == "__main__":
     except FileExistsError:
         pass
     for file in os.listdir("gbk"):
+        #if file.split(os.path.sep)[-1].split(".")[0]+".xml" in os.listdir("sbol"):
+        #    continue
+
         i = os.path.join("gbk", file)
         rv = convert(i, prefix, "sbol")
         res = validate_sbol(rv)
@@ -187,3 +186,4 @@ if __name__ == "__main__":
     for k, v in results.items():
         print(k,v)
         print("\n")
+    existing_entities.clear()
